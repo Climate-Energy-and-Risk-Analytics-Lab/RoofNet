@@ -4,15 +4,19 @@ This folder contains notebook-oriented code for explainability experiments on th
 
 Current focus:
 - interactive attribution analysis in **marimo**
-- helper modules for attribution methods and aggregation
-- batch export of attribution figures and spatial aggregation artifacts
+- segmentation-overlap analysis (GroundingDINO + SAM vs. attribution)
+- non-interactive batch runner for holdout-set segmentation overlap
+- helper modules for attribution methods, segmentation, and aggregation
 
 ## Folder structure
 
 ```text
 xAI_notebooks/
 ├── README.md
-├── remoteclip_xai_attribution_marimo.py
+├── RESULTS.md                                      # experimental results and interpretations
+├── remoteclip_xai_attribution_marimo.py            # interactive attribution notebook
+├── remoteclip_segmentation_overlap_marimo.py       # interactive segmentation-overlap notebook
+├── remoteclip_segmentation_overlap_batch.py        # non-interactive batch runner
 └── attribution_helpers/
     ├── __init__.py
     ├── feature_attribution_aggregation.py
@@ -20,27 +24,122 @@ xAI_notebooks/
     ├── manual_gradcam.py
     ├── captum_integrated_gradients.py
     ├── rise.py
-    └── dataset_split_helpers.py
+    ├── grounding_sam.py
+    ├── segmentation_iou.py
+    ├── dataset_split_helpers.py
+    └── batch_recovery.py
 ```
 
 ## What each file does
 
-### `remoteclip_xai_attribution_marimo.py`
-Main marimo notebook entrypoint.
+### Notebooks
+
+#### `remoteclip_xai_attribution_marimo.py`
+
+Interactive marimo notebook for per-image and batch attribution analysis.
 
 What it handles:
 - environment/import checks
 - model + asset loading
 - dataset-split-aware image sampling via metadata CSV
 - RemoteCLIP prediction sanity checks
-- attribution method registration (no Captum dependency for GradCAM)
-- per-method visualization
+- attribution method registration (Transformer Explainability, GradCAM, Integrated Gradients, RISE)
+- per-method visualization (heatmap, overlay, three-panel view)
 - configurable batch attribution export (method subset, split filter)
 - transformer explainability aggregation export
 
 If you are exploring this repo and want to start somewhere, start here.
 
-### `attribution_helpers/feature_attribution_aggregation.py`
+#### `remoteclip_segmentation_overlap_marimo.py`
+
+Interactive marimo notebook for segmentation-overlap analysis: does model attribution attend to the actual roof/building subject?
+
+What it handles:
+- GroundingDINO proposal generation with configurable text prompt and thresholds
+- SAM mask refinement from proposed bounding boxes
+- full-image fallback box when GroundingDINO returns zero detections
+- per-attribution-method heatmap vs. combined SAM mask comparison
+- IoU, inside-ratio, coverage-ratio, and attribution-mass metrics
+- random-baseline IoU comparison
+- threshold-sensitivity sweep (percentile 50–99)
+- overlay visualization (original image + SAM masks + attribution heatmap)
+
+Use this notebook when you want to interactively explore how well attribution aligns with segmented roof/building regions on individual images.
+
+### Batch runner
+
+#### `remoteclip_segmentation_overlap_batch.py`
+
+Non-interactive CLI script that runs the segmentation-overlap analysis across the full holdout split with resumable execution and robust failure handling.
+
+What it does:
+- processes every holdout image through: RemoteCLIP prediction → Transformer Explainability attribution → GroundingDINO proposals → SAM refinement → overlap metrics
+- exports per-image combined mask PNG and segmentation-overlay image
+- writes results CSV and failures JSONL
+- generates aggregate summary JSON with consistency rates and health stats
+- produces histogram, scatter, boxplot, and threshold-bar plots
+- supports resumable execution: reruns skip already-completed images
+- continue-on-error: failures logged per-image, batch continues
+
+```bash
+# Smoke test (2 images)
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py --limit 2
+
+# Full holdout run
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py
+
+# Ignore previous state, recompute everything
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py --force-recompute
+```
+
+CLI arguments:
+
+| Argument | Default | Description |
+|---|---|---|
+| `--split` | `holdout` | Dataset split |
+| `--method` | `transformer_explainability` | Attribution method |
+| `--output-dir` | `xAI_outputs/segmentation` | Output root |
+| `--limit` | (all) | Max images to process |
+| `--device` | auto | Device override |
+| `--gdino-model-id` | `IDEA-Research/grounding-dino-base` | GroundingDINO HF model |
+| `--sam-model-id` | `facebook/sam-vit-huge` | SAM HF model |
+| `--grounding-text-prompt` | `building . house . rooftop . roof . structure .` | Detection prompt |
+| `--gdino-box-threshold` | `0.20` | GroundingDINO box confidence |
+| `--gdino-text-threshold` | `0.15` | GroundingDINO text confidence |
+| `--attribution-percentile` | `80` | Percentile for binarizing attribution |
+| `--log-level` | `INFO` | Logging verbosity |
+| `--force-recompute` | off | Ignore resume state |
+
+Batch output layout:
+
+```text
+xAI_outputs/segmentation/
+├── masks/                  # per-image combined mask PNGs (255/0)
+├── overlays/               # per-image overlay (original + green mask + contour)
+├── tables/
+│   ├── segmentation_overlap_results.csv
+│   └── segmentation_overlap_failures.jsonl
+├── summary/
+│   └── segmentation_overlap_summary.json
+├── plots/
+│   ├── attribution_mass_inside_hist.png
+│   ├── attribution_mass_outside_hist.png
+│   ├── combined_iou_hist.png
+│   ├── mass_inside_vs_iou_scatter.png
+│   ├── metric_boxplots.png
+│   ├── consistency_threshold_bars.png
+│   └── ecdf_mass_inside_and_iou.png
+└── logs/
+    └── batch_YYYYMMDD_HHMMSS.log
+```
+
+**Resumability model:** an image counts as complete only if a successful row exists in `segmentation_overlap_results.csv` AND both `masks/<id>__combined_mask.png` and `overlays/<id>__segmentation_overlay.png` exist on disk. Missing or partial artifacts trigger recomputation on rerun.
+
+**Per-image CSV columns:** `image_id`, `image_path`, `image_filename`, `split`, `method`, `city_name`, `predicted_class_index`, `predicted_class_label`, `predicted_probability`, `gdino_model_id`, `sam_model_id`, `grounding_text_prompt`, `gdino_box_threshold`, `gdino_text_threshold`, `gdino_num_boxes`, `sam_num_masks`, `used_full_image_fallback`, `combined_mask_area`, `attribution_percentile`, `threshold_value`, `attribution_density`, `attribution_map_height`, `attribution_map_width`, `mask_height`, `mask_width`, `attribution_mass_inside`, `attribution_mass_outside`, `combined_iou`, `inside_ratio`, `coverage_ratio`, `attribution_area`, `intersection_area`, `union_area`, `sam_mask_area`, `runtime_seconds`, `status`.
+
+### Attribution helpers
+
+#### `attribution_helpers/feature_attribution_aggregation.py`
 Helper module for spatial aggregation of attribution heatmaps.
 
 Current responsibilities:
@@ -51,30 +150,37 @@ Current responsibilities:
 - 50% attribution radius metrics
 - aggregate summary generation
 
-Designed so same aggregation path can later support:
-- Transformer Explainability
-- GradCAM
-- Integrated Gradients
-- RISE
+#### `attribution_helpers/transformer_explainability.py`
+Transformer attention-gradient relevance rollout for RemoteCLIP ViT-L/14. Patches visual transformer blocks to capture attention weights and gradients, builds gradient-weighted per-layer relevance matrices, rolls CLS relevance back onto the 16×16 patch grid, and upsamples to input resolution.
 
-### `attribution_helpers/`
-Implementation helpers for each attribution family.
-
-#### `transformer_explainability.py`
-Transformer attention-gradient relevance rollout for RemoteCLIP ViT-L/14.
-
-#### `manual_gradcam.py`
+#### `attribution_helpers/manual_gradcam.py`
 Manual GradCAM utilities for:
-- ViT token-level GradCAM
-- patch embedding GradCAM
+- ViT token-level GradCAM (penultimate transformer block)
+- patch embedding GradCAM (`model.visual.conv1`)
 
-#### `captum_integrated_gradients.py`
-Captum Integrated Gradients helper functions.
+#### `attribution_helpers/captum_integrated_gradients.py`
+Captum Integrated Gradients helper functions. Supports `abs` and `positive` reduction modes.
 
-#### `rise.py`
-RISE black-box masking attribution helper functions.
+#### `attribution_helpers/rise.py`
+RISE black-box masking attribution helper functions. Runs many masked forward passes in chunks; does not require internal gradients.
 
-#### `dataset_split_helpers.py`
+#### `attribution_helpers/grounding_sam.py`
+GroundingDINO + SAM pipeline helpers:
+- `load_groundingdino_model()` / `load_sam_predictor()` — load HuggingFace models
+- `run_groundingdino_inference()` — generate bounding-box proposals with configurable prompt/thresholds
+- `run_sam_box_refinement()` — refine boxes into instance masks via SAM
+
+#### `attribution_helpers/segmentation_iou.py`
+Attribution-mask overlap metrics:
+- `resize_float_map_to_shape()` / `resize_mask_to_shape()` — resize attribution or mask to target shape
+- `binarize_attribution_percentile()` — threshold attribution by percentile
+- `compute_attribution_mask_metrics()` — IoU, inside-ratio, coverage-ratio
+- `compute_attribution_mass()` — fraction of continuous attribution mass inside/outside a mask
+- `combine_instance_masks()` — OR-combine multiple SAM instance masks
+- `sweep_threshold_iou()` — threshold sensitivity analysis
+- `random_mask_iou_baseline()` — random-baseline IoU comparison
+
+#### `attribution_helpers/dataset_split_helpers.py`
 Utilities for reproducible dataset-split-based image selection:
 - `collect_split_image_paths()` — filters metadata CSV by split (`train`/`val`/`holdout`/`all`), joins against actual files on disk
 - `write_split_helper_csvs()` — exports split-filtered CSV artifacts for auditability
@@ -113,25 +219,53 @@ Why both:
 - `requirements.txt` installs broader project dependencies
 - `requirements-dev.txt` adds notebook/xAI-specific tools like `marimo`, `captum`, `kagglehub`, and pinned `kagglesdk`
 
-## Run notebook with marimo
+### 5. Set HuggingFace token (optional, suppresses warnings)
+
+Create `.env` at repo root (excluded from git):
+
+```
+HF_TOKEN=hf_your_token_here
+```
+
+## Running the notebooks
 
 From repo root, after activating `.venv`:
 
-### Edit mode
+### Attribution notebook
 
 ```bash
+# Interactive edit mode
 .venv/bin/marimo edit xAI_notebooks/remoteclip_xai_attribution_marimo.py
-```
 
-This opens notebook in interactive marimo edit mode.
-
-### Run mode
-
-```bash
+# App/run mode
 .venv/bin/marimo run xAI_notebooks/remoteclip_xai_attribution_marimo.py
 ```
 
-Use run mode when you want notebook to execute as an app/script instead of editing cells interactively.
+### Segmentation-overlap notebook
+
+```bash
+# Interactive edit mode
+.venv/bin/marimo edit xAI_notebooks/remoteclip_segmentation_overlap_marimo.py
+
+# App/run mode
+.venv/bin/marimo run xAI_notebooks/remoteclip_segmentation_overlap_marimo.py
+```
+
+### Batch segmentation-overlap runner
+
+```bash
+# Smoke test (2 images)
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py --limit 2
+
+# Full holdout run
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py
+
+# Resume after interruption (automatic — just rerun)
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py
+
+# Force recompute all
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py --force-recompute
+```
 
 ## Typical workflow
 
@@ -141,162 +275,63 @@ From repo root:
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
+
+# Interactive exploration
 .venv/bin/marimo edit xAI_notebooks/remoteclip_xai_attribution_marimo.py
+
+# Segmentation overlap exploration
+.venv/bin/marimo edit xAI_notebooks/remoteclip_segmentation_overlap_marimo.py
+
+# Full holdout batch run
+.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py
 ```
 
 ## Expected assets
 
-Notebook supports local assets and KaggleHub-backed assets.
+Notebooks and batch runner expect these assets at repo root:
 
-Common local assets used by notebook:
-- `best_clip_model_balanced.pth`
-- `xBD_cropped_roofs/xBD_cropped_roofs/`
-- optional `roofnet_metadata.csv`
+| Asset | Source | Required by |
+|---|---|---|
+| `best_clip_model_balanced.pth` | [Kaggle](https://www.kaggle.com/datasets/doubleblindreview/xbd-roof-images) | All notebooks + batch |
+| `RoofNet-Images/` | Cropped roof image directory | All notebooks + batch |
+| `roofnet_metadata.csv` | Metadata with `filename` and `split` columns | All notebooks + batch |
 
-Asset behavior is configured inside notebook config cell.
+Asset paths are configurable inside notebook config cells and via CLI arguments for the batch runner.
 
 ## Outputs
 
-Notebook batch runs write outputs under:
-- `xAI_outputs/`
+### Attribution notebook outputs
 
-Batch outputs depend on configured methods and split:
+Written under `xAI_outputs/`:
 - per-method attribution PNGs
-- per-method-family spatial stats CSV (Parquet) + aggregation summary CSV
+- per-method-family spatial stats CSV + aggregation summary CSV
 - per-method-family radial profile, center-mass, and centroid-offset plot PNGs
-- split helper CSV artifacts (written alongside notebook by default)
+- split helper CSV artifacts
 
-### Aggregate metrics reference
+### Segmentation overlap outputs
 
-The batch runner processes each method family's heatmaps through `attribution_helpers/feature_attribution_aggregation.py`. The per-image CSV contains these columns:
+Written under `xAI_outputs/segmentation/` (see batch runner section above for full layout).
 
-#### Raw heatmap properties
+## Results
 
-| Column | Meaning |
-|---|---|
-| `raw_sum` | Sum of all pixel values before normalization |
-| `raw_abs_sum` | Sum of absolute pixel values before normalization |
-| `raw_min` / `raw_max` | Min and max pixel value in raw heatmap |
-| `negative_mass_ratio` | `\|negative\| / \|total\|` — fraction of absolute mass that is negative. Near 0 → model used mostly positive evidence; near 0.5 → equal positive/negative |
-| `is_zero_sum` | True if heatmap is all zeros (attribution failed for that image) |
+Experimental results and interpretations are documented in [`RESULTS.md`](RESULTS.md).
 
-#### Spatial concentration
+Key findings from the attribution notebook (617 holdout images, Transformer Explainability):
+- model attention is diffuse, not strongly center-biased
+- median centroid offset: 0.100 (centered)
+- median peak offset: 0.588 (peripheral)
+- median radius for 50% mass: 0.693 (large area needed)
 
-| Column | Meaning |
-|---|---|
-| `mass_center_25_square` | Fraction of total attribution mass inside the central 25%-area square |
-| `mass_center_50_square` | Fraction of total attribution mass inside the central 50%-area square |
-| `radius_for_50_mass_square` | Side fraction (0–1) of the smallest centered square that captures 50% of mass. Smaller → more concentrated |
-| `radius_for_50_mass_radial` | Normalized radius (0–1) of the smallest centered circle that captures 50% of mass. Smaller → more concentrated |
-| `radius_50_gap` | Square minus radial radius. Positive → mass is more circular than square; negative → mass follows square/edge pattern |
-
-#### Centroid and peak location
-
-| Column | Meaning |
-|---|---|
-| `centroid_x` / `centroid_y` | Attribution-weighted centroid in pixel coordinates |
-| `centroid_offset_px` / `centroid_offset_norm` | Euclidean distance from image center to centroid, in pixels / normalized to [0, 1]. Small offset_norm → model focused near center of image |
-| `peak_x` / `peak_y` | Coordinates of the single highest-attribution pixel |
-| `peak_offset_px` / `peak_offset_norm` | Offset of the peak pixel from center. Compare with centroid offset to distinguish broad (centroid near center, peak off-center) vs. sharp focus |
-
-#### Radial profile
-
-| Column | Meaning |
-|---|---|
-| `radial_profile_00_20` through `radial_profile_80_100` | Attribution mass fraction in each concentric ring (0–20%, 20–40%, …, 80–100% of max radius). Monotonically decreasing → center-focused; flat → diffuse |
-
-#### Cross-image summary (`{method_family}_spatial_summary.csv`)
-
-| Metric | Meaning |
-|---|---|
-| `num_images` | Number of heatmaps processed |
-| `zero_sum_images` | Count of all-zero heatmaps |
-| `median_mass_center_25_square` / `iqr_*` | Typical fraction of mass in center 25% area, with IQR spread. High median + narrow IQR → consistent center focus |
-| `median_mass_center_50_square` / `iqr_*` | Same for center 50% area |
-| `median_radius_for_50_mass_square` / `iqr_*` | Typical square crop size to capture half the mass |
-| `median_radius_for_50_mass_radial` / `iqr_*` | Typical radial radius to capture half the mass |
-| `fraction_center25_over_50pct` | Proportion of images where >50% of mass falls in center 25% area. High → strong center bias |
-| `median_centroid_offset_norm` | Typical centroid displacement. Near 0 → consistent center focus |
-| `median_peak_offset_norm` | Typical peak displacement. Compare with centroid offset |
-| `mean_negative_mass_ratio` | Average negative evidence across batch. If high, consider positive-only aggregation instead |
-| `median_radius_50_gap` | Typical gap between square and radial 50% radii. Large positive → mass is more circular than square |
-
-#### Generated plots
-
-| File | How to read it |
-|---|---|
-| `{method_family}_radial_profile.png` | Mean ± 1 std of attribution mass across radial rings. Steep drop → center-concentrated; flat → diffuse |
-| `{method_family}_center25_hist.png` | Histogram of `mass_center_25_square`. Right-skewed → most images concentrate in the center |
-| `{method_family}_centroid_offset_hist.png` | Histogram of `centroid_offset_norm`. Tight cluster near 0 → model looks at center consistently; spread out → variable focus |
-
-### Holdout-set Transformer Explainability summary (617 images)
-
-These numbers come from a full holdout-set batch run over the entire holdout split. Sample size is large enough that patterns here should be treated as stable signals, not small-sample noise.
-
-#### Quick table
-
-| Section | Metric | Value | Interpretation |
-|---|---|---:|---|
-| Sample health | `num_images` | 617 | Entire holdout set processed; statistics now meaningfully stable. |
-| Sample health | `zero_sum_images` | 0 | No failed or degenerate heatmaps. |
-| Sample health | `mean_negative_mass_ratio` | 0.0 | Transformer Explainability stayed strictly non-negative across holdout. |
-| Concentration | `median_mass_center_25_square` | 0.286 | Center quarter holds 28.6% of attribution; only weak center bias over 25% uniform baseline. |
-| Concentration | `iqr_mass_center_25_square` | 0.129 | Attention concentration varies meaningfully image to image. |
-| Concentration | `median_mass_center_50_square` | 0.524 | Center half holds 52.4% of attribution; model still reads much of image. |
-| Concentration | `iqr_mass_center_50_square` | 0.145 | Similar spread as center-quarter metric. |
-| Concentration | `fraction_center25_over_50pct` | 0.039 | Only ~3.9% of images put majority of attribution in center quarter. |
-| Half-mass area | `median_radius_for_50_mass_square` | 0.693 | Large square crop needed to capture half the attribution. |
-| Half-mass area | `iqr_radius_for_50_mass_square` | 0.108 | Pattern fairly consistent across holdout. |
-| Half-mass area | `median_radius_for_50_mass_radial` | 0.550 | Radial estimate confirms attribution extends well beyond center. |
-| Half-mass area | `iqr_radius_for_50_mass_radial` | 0.088 | Slightly tighter spread than square estimate. |
-| Shape | `median_radius_50_gap` | 0.139 | Attribution often has directional lean rather than radial symmetry. |
-| Location | `median_centroid_offset_norm` | 0.100 | Average attribution mass stays broadly near image center. |
-| Location | `median_peak_offset_norm` | 0.588 | Strongest individual cue usually lies near image periphery. |
-
-#### Sample health
-
-- `num_images: 617` — entire holdout set processed.
-- `zero_sum_images: 0` — every image produced a valid, non-degenerate attribution heatmap; no failed or blank outputs needed exclusion.
-- `mean_negative_mass_ratio: 0.0` — Transformer Explainability stayed strictly non-negative across all images, so normalization was clean and consistent throughout.
-
-#### How concentrated is model attention?
-
-- `median_mass_center_25_square: 0.286` — on a typical image, the center quarter of pixels contains 28.6% of total attribution. Uniform-random baseline would be 25%, so center preference exists but is weak.
-- `iqr_mass_center_25_square: 0.129` — meaningful image-to-image spread; some samples are more center-focused, many are not.
-- `median_mass_center_50_square: 0.524` — the center half of the image captures 52.4% of attribution on median. Against a 50% uniform baseline, this again suggests only weak center bias.
-- `iqr_mass_center_50_square: 0.145` — similar spread as center-25 metric; concentration is not uniform across dataset.
-- `fraction_center25_over_50pct: 0.039` — only about 3.9% of images (~24/617) place more than half their attribution mass inside the center quarter. Most images show diffuse, spread-out attention.
-
-#### How much area captures half the signal?
-
-- `median_radius_for_50_mass_square: 0.693` — square center-crops must span 69.3% of image half-width to capture 50% of attribution on a typical image. Large crop, weak central concentration.
-- `iqr_radius_for_50_mass_square: 0.108` — moderate spread; this pattern is fairly consistent across holdout.
-- `median_radius_for_50_mass_radial: 0.550` — radially, 55.0% of max image radius is needed to capture half the attribution mass. Same story: attribution extends well beyond center.
-- `iqr_radius_for_50_mass_radial: 0.088` — slightly tighter than square estimate, consistent with radial measure being less sensitive to directional asymmetry.
-- `median_radius_50_gap: 0.139` — square and radial estimates differ by ~14 percentage points on median, suggesting attribution is not radially symmetric and often has directional lean.
-
-#### Where is model actually looking?
-
-- `median_centroid_offset_norm: 0.100` — attribution center of mass sits only ~10.0% of image half-width away from geometric center. In aggregate, attention is still broadly centered.
-- `median_peak_offset_norm: 0.588` — the single strongest attribution pixel sits ~58.8% of image half-width away from center on median. Strongest individual cue is typically near image periphery, not roof center.
-
-#### Main interpretation
-
-Most important tension in these results:
-
-- **Centroid story:** `0.100` suggests average attribution mass stays roughly centered.
-- **Peak story:** `0.588` suggests highest-value individual evidence often lives near image edge.
-
-Interpretation: model appears to use broadly distributed contextual evidence, while its strongest single cue often comes from peripheral content. That peripheral cue could be neighboring structures, shadows, vegetation, or road-edge context rather than rooftop material alone.
+Segmentation-overlap results are pending full batch run.
 
 ## Notes
 
-- notebook currently uses **marimo**, not Jupyter, as primary interactive environment
+- notebooks use **marimo**, not Jupyter, as primary interactive environment
 - helper modules are meant to keep notebook cells thinner and easier to test
-- GradCAM methods are fully manual (no Captum `LayerGradCam` dependency) — `manual_gradcam.py` replaces the old `captum_gradcam.py`
-- batch runner supports method selection via `CONFIG.batch.methods` and dataset-split filtering via `CONFIG.batch.split`
+- GradCAM methods are fully manual (no Captum `LayerGradCam` dependency)
+- batch runner supports method selection and dataset-split filtering
 - aggregation schema includes a `method` column, enabling cross-method spatial metric comparison
-- notebook contains lightweight self-install logic for some optional packages, but preferred path is still installing from `requirements.txt` and `requirements-dev.txt` first
+- notebooks contain lightweight self-install logic for some optional packages, but preferred path is still installing from `requirements.txt` and `requirements-dev.txt` first
 
 ## Troubleshooting
 
@@ -319,7 +354,6 @@ python --version
 
 Expected pattern:
 - python should resolve inside `.venv`
-- project has been using Python `3.14.x`
 
 ### Marimo command not found
 Run marimo through repo venv directly:
@@ -334,3 +368,8 @@ This repo currently pins:
 - `kagglesdk==0.1.23`
 
 Reason: newer `kagglesdk` version previously caused import breakage for notebook workflow.
+
+### Batch runner warnings
+- **HF Hub unauthenticated requests:** set `HF_TOKEN` in `.env` at repo root
+- **`torch.load` weights_only warning:** batch runner uses `weights_only=True`
+- **Matplotlib deprecation:** batch runner uses `tick_labels` (not `labels`)

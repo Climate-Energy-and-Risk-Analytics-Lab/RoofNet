@@ -125,7 +125,7 @@ def run_groundingdino_inference(
     result = results[0] if results else {}
     boxes = _to_numpy(result.get("boxes", np.zeros((0, 4), dtype=np.float32)), dtype=np.float32).reshape(-1, 4)
     scores = _to_numpy(result.get("scores", np.zeros((0,), dtype=np.float32)), dtype=np.float32).reshape(-1)
-    phrases = [str(label) for label in result.get("labels", [])]
+    phrases = [str(label) for label in result.get("text_labels", result.get("labels", []))]
     if boxes.size == 0:
         boxes = np.zeros((0, 4), dtype=np.float32)
     if scores.size == 0:

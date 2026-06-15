@@ -1127,6 +1127,7 @@ def _(grounding_prediction, mo, pil_img, plt):
         plt.close(gd_fig)
         gdino_proposals_output = gd_fig
     gdino_proposals_output
+    return
 
 
 @app.cell
@@ -1268,6 +1269,7 @@ def _(
         )
         combined_metrics = segmentation_iou.compute_attribution_mask_metrics(binary_mask, combined_mask)
         attribution_density = float(binary_mask.mean())
+        mass_metrics = segmentation_iou.compute_attribution_mass(resized_map, combined_mask)
         attribution_analysis = {
             "resized_map": resized_map,
             "binary_mask": binary_mask,
@@ -1285,12 +1287,16 @@ def _(
                 "attribution_iou": combined_metrics.attribution_iou,
                 "inside_ratio": combined_metrics.inside_ratio,
                 "coverage_ratio": combined_metrics.coverage_ratio,
+                "attribution_mass_inside": mass_metrics["mass_inside"],
+                "attribution_mass_outside": mass_metrics["mass_outside"],
             },
             "attribution_density": attribution_density,
         }
         print(f"Resized attribution shape: {resized_map.shape}")
         print(f"Threshold value: {threshold_value:.6f}")
         print(f"Attribution density: {attribution_density:.6f}")
+        print(f"Attribution mass inside masks: {mass_metrics['mass_inside']:.4f} ({mass_metrics['mass_inside']*100:.1f}%)")
+        print(f"Attribution mass outside masks: {mass_metrics['mass_outside']:.4f} ({mass_metrics['mass_outside']*100:.1f}%)")
     else:
         print("Skipping overlap analysis because no SAM masks are available.")
     return (attribution_analysis,)
@@ -1306,6 +1312,7 @@ def _(attribution_analysis, mo, pd):
             attribution_analysis["instance_rows"] + [attribution_analysis["combined_row"]]
         )
     iou_table_output
+    return
 
 
 @app.cell
@@ -1333,11 +1340,13 @@ def _(attribution_analysis, segmentation_controls, segmentation_iou):
             "random_iou_mean": float(baseline["mean_iou"]),
             "random_iou_std": random_iou_std,
             "random_iou_z": random_iou_z,
+            "attribution_mass_inside": attribution_analysis["combined_row"]["attribution_mass_inside"],
+            "attribution_mass_outside": attribution_analysis["combined_row"]["attribution_mass_outside"],
         }
         print(f"Baseline summary: {baseline_summary}")
     else:
         print("Skipping threshold sweep and random baseline because overlap analysis is unavailable.")
-    return baseline_summary, threshold_rows
+    return (baseline_summary,)
 
 
 @app.cell(hide_code=True)
@@ -1388,7 +1397,9 @@ def _(CONFIG, attribution_analysis, baseline_summary, mo, np, pil_img, plt):
         ov_axes[1, 1].imshow(ov_combined_mask, cmap="spring", alpha=0.45)
         overlay_title = "SAM overlap"
         if baseline_summary is not None:
-            overlay_title = f"SAM overlap | IoU={baseline_summary['actual_iou']:.3f}"
+            mass_in = attribution_analysis["combined_row"]["attribution_mass_inside"]
+            mass_out = attribution_analysis["combined_row"]["attribution_mass_outside"]
+            overlay_title = f"SAM overlap | IoU={baseline_summary['actual_iou']:.3f}\nMass in={mass_in*100:.1f}% out={mass_out*100:.1f}%"
         ov_axes[1, 1].set_title(overlay_title)
 
         for ov_ax in ov_axes.flat:
@@ -1397,6 +1408,7 @@ def _(CONFIG, attribution_analysis, baseline_summary, mo, np, pil_img, plt):
         plt.close(ov_fig)
         overlay_fig_output = ov_fig
     overlay_fig_output
+    return
 
 
 @app.cell
@@ -1407,27 +1419,7 @@ def _(baseline_summary, mo, pd):
     else:
         baseline_table_output = pd.DataFrame([baseline_summary])
     baseline_table_output
-
-
-@app.cell
-def _(mo, pd, plt, threshold_rows):
-    threshold_df = None
-    threshold_fig_output = None
-    if not threshold_rows:
-        threshold_fig_output = mo.md("**Threshold sensitivity unavailable until overlap analysis runs.**")
-    else:
-        thresh_df = pd.DataFrame(threshold_rows)
-        thresh_fig, thresh_ax = plt.subplots(figsize=(7, 4))
-        thresh_ax.plot(thresh_df["percentile"], thresh_df["combined_iou"], label="combined IoU")
-        thresh_ax.plot(thresh_df["percentile"], thresh_df["mean_instance_iou"], label="mean instance IoU")
-        thresh_ax.set_xlabel("Attribution percentile")
-        thresh_ax.set_ylabel("IoU")
-        thresh_ax.set_title("Threshold sensitivity")
-        thresh_ax.legend()
-        thresh_fig.tight_layout()
-        plt.close(thresh_fig)
-        threshold_fig_output = thresh_fig
-    threshold_fig_output
+    return
 
 
 if __name__ == "__main__":

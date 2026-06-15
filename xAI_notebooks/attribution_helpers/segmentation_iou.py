@@ -72,6 +72,29 @@ def compute_mask_iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
     return float(intersection / union) if union > 0 else 0.0
 
 
+def compute_attribution_mass(
+    attribution_map: np.ndarray,
+    mask: np.ndarray,
+) -> dict[str, float]:
+    """Fraction of attribution mass inside vs outside a boolean mask.
+
+    Uses raw (continuous) attribution values, not binarized masks.
+    Returns dict with keys: mass_inside, mass_outside, total_mass.
+    """
+    arr = _as_2d_array(np.asarray(attribution_map, dtype=np.float64), name="attribution_map")
+    m = _as_bool_mask(mask, name="mask")
+    if arr.shape != m.shape:
+        raise ValueError(f"Shape mismatch: attribution {arr.shape} vs mask {m.shape}")
+    total = float(arr.sum())
+    inside = float(arr[m].sum()) if m.any() else 0.0
+    outside = total - inside
+    return {
+        "mass_inside": inside / total if total > 0 else 0.0,
+        "mass_outside": outside / total if total > 0 else 0.0,
+        "total_mass": total,
+    }
+
+
 def compute_attribution_mask_metrics(binary_attribution_mask: np.ndarray, sam_mask: np.ndarray) -> MaskMetrics:
     attribution = _as_bool_mask(binary_attribution_mask, name="binary_attribution_mask")
     sam = _as_bool_mask(sam_mask, name="sam_mask")
