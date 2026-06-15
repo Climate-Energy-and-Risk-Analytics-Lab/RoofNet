@@ -111,14 +111,15 @@ def run_groundingdino_inference(
     box_threshold: float,
     text_threshold: float,
 ) -> GroundingPrediction:
-    del text_threshold
     image_rgb = image.convert("RGB")
     height, width = image_rgb.height, image_rgb.width
     inputs = model.processor(images=image_rgb, text=prompt, return_tensors="pt").to(model.device)
     outputs = model.model(**inputs)
     results = model.processor.post_process_grounded_object_detection(
         outputs,
+        input_ids=inputs.get("input_ids"),
         threshold=box_threshold,
+        text_threshold=text_threshold,
         target_sizes=[(height, width)],
     )
     result = results[0] if results else {}
