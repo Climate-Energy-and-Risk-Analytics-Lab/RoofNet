@@ -1,0 +1,86 @@
+{
+  "run_config": {
+    "split": "holdout",
+    "method": "transformer_explainability",
+    "output_dir": "xAI_outputs/segmentation",
+    "gdino_model_id": "IDEA-Research/grounding-dino-base",
+    "sam_model_id": "facebook/sam-vit-huge",
+    "grounding_text_prompt": "building . rooftop . roof",
+    "gdino_box_threshold": 0.2,
+    "gdino_text_threshold": 0.15,
+    "attribution_percentile": 80.0,
+    "device": "cuda",
+    "total_candidate_images": 617,
+    "completed_images": 617,
+    "failed_attempt_count": 0,
+    "generated_at": "2026-07-07T20:25:30.105342+00:00"
+  },
+  "metric_summaries": {
+    "attribution_mass_inside": {
+      "count": 617,
+      "mean": 0.8282817887549795,
+      "std": 0.2185717103601468,
+      "min": 0.023163737324039597,
+      "p25": 0.7171623607515061,
+      "median": 0.9330051299253629,
+      "p75": 0.9998370825779276,
+      "max": 1.0
+    },
+    "attribution_mass_outside": {
+      "count": 617,
+      "mean": 0.17171821124502046,
+      "std": 0.21857171036014678,
+      "min": 0.0,
+      "p25": 0.0001629174220724341,
+      "median": 0.0669948700746371,
+      "p75": 0.28283763924849387,
+      "max": 0.9768362626759604
+    },
+    "combined_iou": {
+      "count": 617,
+      "mean": 0.19452542474982895,
+      "std": 0.03801636028722432,
+      "min": 0.013757999765730654,
+      "p25": 0.1860025283114774,
+      "median": 0.2,
+      "p75": 0.20026690391459076,
+      "max": 0.5247813411078717
+    },
+    "inside_ratio": {
+      "count": 617,
+      "mean": 0.8457382766581772,
+      "std": 0.19786223458579963,
+      "min": 0.031016657093624354,
+      "p25": 0.7518286311389759,
+      "median": 0.9303025464015036,
+      "p75": 1.0,
+      "max": 1.0
+    },
+    "coverage_ratio": {
+      "count": 617,
+      "mean": 0.2116035357281043,
+      "std": 0.07183490832509892,
+      "min": 0.018507774841172636,
+      "p25": 0.19479251423921887,
+      "median": 0.20003331112591605,
+      "p75": 0.20357154711720385,
+      "max": 0.7883211678832117
+    }
+  },
+  "consistency_rates": {
+    "mass_inside_ge_50": 0.9027552674230146,
+    "mass_inside_ge_70": 0.7714748784440842,
+    "combined_iou_ge_10": 0.9902755267423015,
+    "combined_iou_ge_20": 0.520259319286872,
+    "combined_iou_ge_30": 0.01620745542949757,
+    "high_mass_and_iou": 0.45705024311183146
+  },
+  "health_stats": {
+    "success_count": 617,
+    "unique_failure_image_count": 0,
+    "success_rate_over_attempted": 1.0,
+    "fallback_box_rate": 0.011345218800648298,
+    "mean_gdino_boxes": 3.700162074554295,
+    "mean_sam_masks": 3.711507293354943
+  }
+}
