@@ -598,6 +598,18 @@ def _percentile(values: List[float], p: float) -> float:
     return float(np.percentile(values, p))
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(numeric_value):
+        return None
+    return numeric_value
+
+
 def compute_summary(
     results: List[Dict[str, Any]],
     args: argparse.Namespace,
@@ -627,16 +639,28 @@ def compute_summary(
 
     metric_summaries = {}
     for key in metric_keys:
-        vals = [float(r[key]) for r in results if key in r]
+        vals = [
+            value
+            for value in (_safe_float(r.get(key)) for r in results)
+            if value is not None
+        ]
         metric_summaries[key] = _metric_stats(vals)
 
     # Consistency rates
-    mass_inside_vals = [float(r["attribution_mass_inside"]) for r in results]
-    iou_vals = [float(r["combined_iou"]) for r in results]
-    n = len(results) if results else 1
+    mass_inside_vals = [
+        value
+        for value in (_safe_float(r.get("attribution_mass_inside")) for r in results)
+        if value is not None
+    ]
+    iou_vals = [
+        value
+        for value in (_safe_float(r.get("combined_iou")) for r in results)
+        if value is not None
+    ]
+    n = min(len(mass_inside_vals), len(iou_vals)) or 1
 
     consistency = {}
-    if results:
+    if mass_inside_vals and iou_vals:
         consistency["mass_inside_ge_50"] = sum(1 for v in mass_inside_vals if v >= 0.50) / n
         consistency["mass_inside_ge_70"] = sum(1 for v in mass_inside_vals if v >= 0.70) / n
         consistency["combined_iou_ge_10"] = sum(1 for v in iou_vals if v >= 0.10) / n
@@ -648,8 +672,8 @@ def compute_summary(
 
     # Health stats
     fallback_count = sum(1 for r in results if r.get("used_full_image_fallback"))
-    gdino_boxes = [float(r.get("gdino_num_boxes", 0)) for r in results]
-    sam_masks = [float(r.get("sam_num_masks", 0)) for r in results]
+    gdino_boxes = [value for value in (_safe_float(r.get("gdino_num_boxes")) for r in results) if value is not None]
+    sam_masks = [value for value in (_safe_float(r.get("sam_num_masks")) for r in results) if value is not None]
 
     summary = {
         "run_config": {
@@ -692,11 +716,30 @@ def generate_plots(results: List[Dict[str, Any]], plots_dir: Path, logger: loggi
         logger.warning("No successful results to plot.")
         return
 
-    mass_inside = [float(r["attribution_mass_inside"]) for r in results]
-    mass_outside = [float(r["attribution_mass_outside"]) for r in results]
-    iou_vals = [float(r["combined_iou"]) for r in results]
-    inside_ratio = [float(r["inside_ratio"]) for r in results]
-    coverage_ratio = [float(r["coverage_ratio"]) for r in results]
+    valid_results = []
+    for row in results:
+        converted = {
+            key: _safe_float(row.get(key))
+            for key in [
+                "attribution_mass_inside",
+                "attribution_mass_outside",
+                "combined_iou",
+                "inside_ratio",
+                "coverage_ratio",
+            ]
+        }
+        if all(value is not None for value in converted.values()):
+            valid_results.append(converted)
+
+    if not valid_results:
+        logger.warning("No successful results with complete numeric metrics to plot.")
+        return
+
+    mass_inside = [r["attribution_mass_inside"] for r in valid_results]
+    mass_outside = [r["attribution_mass_outside"] for r in valid_results]
+    iou_vals = [r["combined_iou"] for r in valid_results]
+    inside_ratio = [r["inside_ratio"] for r in valid_results]
+    coverage_ratio = [r["coverage_ratio"] for r in valid_results]
 
     # 1. Histogram: attribution mass inside
     fig, ax = plt.subplots(figsize=(8, 5))
