@@ -938,7 +938,7 @@ def _(
     segmentation_controls = {
         "gdino_model_id": mo.ui.text(label="GroundingDINO model ID", value="IDEA-Research/grounding-dino-base"),
         "sam_model_id": mo.ui.text(label="SAM model ID", value="facebook/sam-vit-huge"),
-        "grounding_text_prompt": mo.ui.text(label="Grounding text prompt", value="building . house . rooftop . roof . structure ."),
+        "grounding_text_prompt": mo.ui.text(label="Grounding text prompt", value="building . rooftop . roof"),
         "gdino_box_threshold": mo.ui.slider(0.05, 0.9, value=0.20, step=0.05, label="GroundingDINO box threshold"),
         "gdino_text_threshold": mo.ui.slider(0.05, 0.9, value=0.15, step=0.05, label="GroundingDINO text threshold"),
         "attribution_iou_threshold_pct": mo.ui.slider(50, 99, value=80, step=1, label="Attribution percentile"),

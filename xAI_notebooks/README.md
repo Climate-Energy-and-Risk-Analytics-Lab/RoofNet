@@ -209,15 +209,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Install notebook/dev requirements on top
+### 4. Install notebook/xAI requirements on top
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-xai.txt
 ```
 
 Why both:
 - `requirements.txt` installs broader project dependencies
-- `requirements-dev.txt` adds notebook/xAI-specific tools like `marimo`, `captum`, `kagglehub`, and pinned `kagglesdk`
+- `requirements-xai.txt` adds notebook/xAI-specific tools like `marimo`, `captum`, `kagglehub`, and pinned `kagglesdk`
 
 ### 5. Set HuggingFace token (optional, suppresses warnings)
 
@@ -274,7 +274,7 @@ From repo root:
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install -r requirements-xai.txt
 
 # Interactive exploration
 .venv/bin/marimo edit xAI_notebooks/remoteclip_xai_attribution_marimo.py
@@ -331,7 +331,7 @@ Segmentation-overlap results are pending full batch run.
 - GradCAM methods are fully manual (no Captum `LayerGradCam` dependency)
 - batch runner supports method selection and dataset-split filtering
 - aggregation schema includes a `method` column, enabling cross-method spatial metric comparison
-- notebooks contain lightweight self-install logic for some optional packages, but preferred path is still installing from `requirements.txt` and `requirements-dev.txt` first
+- notebooks contain lightweight self-install logic for some optional packages, but preferred path is still installing from `requirements.txt` and `requirements-xai.txt` first
 
 ## Troubleshooting
 
@@ -341,7 +341,7 @@ Make sure `.venv` is activated and both requirements files were installed:
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install -r requirements-xai.txt
 ```
 
 ### Wrong Python or package set

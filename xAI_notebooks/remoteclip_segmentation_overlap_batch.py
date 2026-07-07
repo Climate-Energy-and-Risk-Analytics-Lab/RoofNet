@@ -116,10 +116,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--method", default="transformer_explainability", help="Attribution method")
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "xAI_outputs" / "segmentation"), help="Output root")
     parser.add_argument("--limit", type=int, default=None, help="Max images to process")
+    parser.add_argument("--offset", type=int, default=0, help="Skip first N images (for parallel job splitting)")
     parser.add_argument("--device", default=None, help="Device override (auto-detect if absent)")
     parser.add_argument("--gdino-model-id", default="IDEA-Research/grounding-dino-base")
     parser.add_argument("--sam-model-id", default="facebook/sam-vit-huge")
-    parser.add_argument("--grounding-text-prompt", default="building . house . rooftop . roof . structure .")
+    parser.add_argument("--grounding-text-prompt", default="building . rooftop . roof")
     parser.add_argument("--gdino-box-threshold", type=float, default=0.20)
     parser.add_argument("--gdino-text-threshold", type=float, default=0.15)
     parser.add_argument("--attribution-percentile", type=float, default=80.0)
@@ -863,6 +864,8 @@ def run_batch(args: argparse.Namespace) -> None:
             p for p in assets.image_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTS
         )
 
+    if args.offset:
+        images = images[args.offset:]
     if args.limit:
         images = images[: args.limit]
 

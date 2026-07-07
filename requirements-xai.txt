@@ -1,0 +1,22 @@
+# Minimal dependencies for xAI notebooks and segmentation-overlap batch runner.
+# Intentionally excludes full project/geospatial stack from requirements.txt.
+
+numpy==1.26.4
+pandas
+pillow
+matplotlib
+tqdm
+opencv-python-headless
+
+torch==2.5.0
+torchvision==0.20.0
+open_clip_torch==3.3.0
+transformers
+huggingface_hub
+
+marimo==0.23.8
+captum==0.9.0
+kagglehub==1.0.1
+kagglesdk==0.1.23
+setuptools
+wheel
