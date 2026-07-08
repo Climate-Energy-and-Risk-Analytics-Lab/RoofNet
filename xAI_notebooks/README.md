@@ -17,17 +17,22 @@ xAI_notebooks/
 ├── remoteclip_xai_attribution_marimo.py            # interactive attribution notebook
 ├── remoteclip_segmentation_overlap_marimo.py       # interactive segmentation-overlap notebook
 ├── remoteclip_segmentation_overlap_batch.py        # non-interactive batch runner
-└── attribution_helpers/
-    ├── __init__.py
-    ├── feature_attribution_aggregation.py
-    ├── transformer_explainability.py
-    ├── manual_gradcam.py
-    ├── captum_integrated_gradients.py
-    ├── rise.py
-    ├── grounding_sam.py
-    ├── segmentation_iou.py
-    ├── dataset_split_helpers.py
-    └── batch_recovery.py
+├── attribution_helpers/
+│   ├── __init__.py
+│   ├── feature_attribution_aggregation.py
+│   ├── transformer_explainability.py
+│   ├── manual_gradcam.py
+│   ├── captum_integrated_gradients.py
+│   ├── rise.py
+│   ├── grounding_sam.py
+│   ├── segmentation_iou.py
+│   ├── dataset_split_helpers.py
+│   └── batch_recovery.py
+└── ../hpc/                                         # NYU Torch HPC runbook (see below)
+    ├── README.md
+    ├── setup_hpc.sh
+    ├── run_job.sbatch
+    └── cleanup_hpc_env.sh
 ```
 
 ## What each file does
@@ -136,6 +141,41 @@ xAI_outputs/segmentation/
 **Resumability model:** an image counts as complete only if a successful row exists in `segmentation_overlap_results.csv` AND both `masks/<id>__combined_mask.png` and `overlays/<id>__segmentation_overlay.png` exist on disk. Missing or partial artifacts trigger recomputation on rerun.
 
 **Per-image CSV columns:** `image_id`, `image_path`, `image_filename`, `split`, `method`, `city_name`, `predicted_class_index`, `predicted_class_label`, `predicted_probability`, `gdino_model_id`, `sam_model_id`, `grounding_text_prompt`, `gdino_box_threshold`, `gdino_text_threshold`, `gdino_num_boxes`, `sam_num_masks`, `used_full_image_fallback`, `combined_mask_area`, `attribution_percentile`, `threshold_value`, `attribution_density`, `attribution_map_height`, `attribution_map_width`, `mask_height`, `mask_width`, `attribution_mass_inside`, `attribution_mass_outside`, `combined_iou`, `inside_ratio`, `coverage_ratio`, `attribution_area`, `intersection_area`, `union_area`, `sam_mask_area`, `runtime_seconds`, `status`.
+
+### HPC runbook (`hpc/`)
+
+The `hpc/` folder at repo root contains everything needed to run the batch segmentation-overlap pipeline on NYU Torch HPC with GPU acceleration.
+
+| File | Purpose |
+|---|---|
+| `README.md` | Full step-by-step instructions (sync, setup, submit, monitor, cleanup) |
+| `setup_hpc.sh` | One-time conda environment setup on `/scratch` with redirected caches |
+| `run_job.sbatch` | Slurm job array — 4 parallel GPU workers, 157 images each, 4h timeout |
+| `cleanup_hpc_env.sh` | Tear down conda env, pip/conda caches, and optional HF cache |
+
+Why HPC: the full holdout set (617 images) requires GroundingDINO + SAM inference per image. A single GPU worker takes ~3–4 hours; the 4-worker Slurm array finishes in roughly the same wall time.
+
+Quick start:
+
+```bash
+# 1. Sync repo to HPC
+rsync -av --exclude '.git/' --exclude '.venv/' ./ torch:/scratch/yd3288/RoofNet-xAI/
+
+# 2. SSH and run one-time setup
+ssh torch
+cd /scratch/yd3288/RoofNet-xAI
+bash hpc/setup_hpc.sh
+
+# 3. Edit Slurm account in run_job.sbatch, then submit
+nano hpc/run_job.sbatch   # set --account
+sbatch hpc/run_job.sbatch
+
+# 4. Monitor
+squeue --me
+tail -f xAI_outputs/segmentation/logs/*_out.txt
+```
+
+See `hpc/README.md` for full details including interactive smoke tests, resume/recompute, and cleanup.
 
 ### Attribution helpers
 
@@ -322,7 +362,29 @@ Key findings from the attribution notebook (617 holdout images, Transformer Expl
 - median peak offset: 0.588 (peripheral)
 - median radius for 50% mass: 0.693 (large area needed)
 
-Segmentation-overlap results are pending full batch run.
+Key findings from the segmentation-overlap batch pipeline (617 holdout images, Transformer Explainability + GroundingDINO + SAM):
+
+| Metric | Median | Mean | Interpretation |
+|---|---:|---:|---|
+| `attribution_mass_inside` | 0.933 | 0.828 | 93% of attribution mass falls inside segmented roof/building regions on a typical image |
+| `attribution_mass_outside` | 0.067 | 0.172 | Only 7% leaks outside segmented regions on median |
+| `combined_iou` | 0.200 | 0.195 | Moderate spatial overlap between binarized attribution and SAM mask |
+| `inside_ratio` | 0.930 | 0.846 | Attribution strongly concentrated inside mask |
+| `coverage_ratio` | 0.200 | 0.212 | SAM mask is ~5× larger than attribution region — attribution is selective |
+
+Consistency rates (fraction of images meeting threshold):
+
+| Threshold | Rate |
+|---|---:|
+| Mass inside ≥ 50% | 90.3% |
+| Mass inside ≥ 70% | 77.1% |
+| Combined IoU ≥ 10% | 99.0% |
+| Combined IoU ≥ 20% | 52.0% |
+| Combined IoU ≥ 30% | 1.6% |
+
+Health: 617/617 images processed, 0 failures, 100% success rate. GroundingDINO fallback box rate: 1.1%. Mean boxes per image: 3.7.
+
+Plots and summary JSON are committed under `xAI_outputs/segmentation/` (see batch output layout above).
 
 ## Notes
 
