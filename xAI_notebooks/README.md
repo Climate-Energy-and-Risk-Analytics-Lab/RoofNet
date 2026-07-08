@@ -363,28 +363,9 @@ Key findings from the attribution notebook (617 holdout images, Transformer Expl
 - median radius for 50% mass: 0.693 (large area needed)
 
 Key findings from the segmentation-overlap batch pipeline (617 holdout images, Transformer Explainability + GroundingDINO + SAM):
-
-| Metric | Median | Mean | Interpretation |
-|---|---:|---:|---|
-| `attribution_mass_inside` | 0.933 | 0.828 | 93% of attribution mass falls inside segmented roof/building regions on a typical image |
-| `attribution_mass_outside` | 0.067 | 0.172 | Only 7% leaks outside segmented regions on median |
-| `combined_iou` | 0.200 | 0.195 | Moderate spatial overlap between binarized attribution and SAM mask |
-| `inside_ratio` | 0.930 | 0.846 | Attribution strongly concentrated inside mask |
-| `coverage_ratio` | 0.200 | 0.212 | SAM mask is ~5× larger than attribution region — attribution is selective |
-
-Consistency rates (fraction of images meeting threshold):
-
-| Threshold | Rate |
-|---|---:|
-| Mass inside ≥ 50% | 90.3% |
-| Mass inside ≥ 70% | 77.1% |
-| Combined IoU ≥ 10% | 99.0% |
-| Combined IoU ≥ 20% | 52.0% |
-| Combined IoU ≥ 30% | 1.6% |
-
-Health: 617/617 images processed, 0 failures, 100% success rate. GroundingDINO fallback box rate: 1.1%. Mean boxes per image: 3.7.
-
-Plots and summary JSON are committed under `xAI_outputs/segmentation/` (see batch output layout above).
+- 93% median attribution mass inside segmented roof/building regions
+- 90% of images have ≥50% mass inside; 77% have ≥70%
+- full results and interpretation in [`RESULTS.md` § 2](RESULTS.md#2-segmentation-attribution-overlap-transformer-explainability--groundingdino--sam)
 
 ## Notes
 

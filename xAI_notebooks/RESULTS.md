@@ -70,22 +70,111 @@ Interpretation: model appears to use broadly distributed contextual evidence, wh
 
 ## 2. Segmentation-Attribution Overlap (Transformer Explainability + GroundingDINO + SAM)
 
-To be populated after running the segmentation overlap batch pipeline:
+Batch run over the entire holdout split (617 images). Each image processed through: RemoteCLIP prediction → Transformer Explainability attribution → GroundingDINO proposals → SAM refinement → overlap metrics.
 
-```bash
-.venv/bin/python xAI_notebooks/remoteclip_segmentation_overlap_batch.py
+### Quick table
+
+| Metric | Median | Mean | Std | Interpretation |
+|---|---:|---:|---:|---|
+| `attribution_mass_inside` | 0.933 | 0.828 | 0.219 | 93% of attribution mass falls inside segmented roof/building regions on a typical image |
+| `attribution_mass_outside` | 0.067 | 0.172 | 0.219 | Only 7% leaks outside segmented regions on median |
+| `combined_iou` | 0.200 | 0.195 | 0.038 | Moderate spatial overlap between binarized attribution and combined SAM mask |
+| `inside_ratio` | 0.930 | 0.846 | 0.198 | Attribution strongly concentrated inside mask |
+| `coverage_ratio` | 0.200 | 0.212 | 0.072 | SAM mask is ~5× larger than attribution region — attribution is selective |
+
+### Consistency rates
+
+| Threshold | Rate |
+|---|---:|
+| Mass inside ≥ 50% | 90.3% |
+| Mass inside ≥ 70% | 77.1% |
+| Combined IoU ≥ 10% | 99.0% |
+| Combined IoU ≥ 20% | 52.0% |
+| Combined IoU ≥ 30% | 1.6% |
+| High mass (≥50%) AND IoU (≥20%) | 45.7% |
+
+### Health stats
+
+| Stat | Value |
+|---|---|
+| Images processed | 617 / 617 |
+| Failures | 0 |
+| Success rate | 100% |
+| GroundingDINO fallback box rate | 1.1% |
+| Mean GroundingDINO boxes / image | 3.7 |
+| Mean SAM masks / image | 3.7 |
+
+### Detailed interpretation
+
+#### Attribution mass
+
+- `median_attribution_mass_inside: 0.933` — on a typical image, 93.3% of attribution mass falls inside the combined SAM mask. Model attention is overwhelmingly directed at the segmented roof/building region.
+- `iqr_attribution_mass_inside: 0.717–0.999` — lower quartile still at 71.7%, meaning even the bottom 25% of images have most attribution inside the mask.
+- `median_attribution_mass_outside: 0.067` — only 6.7% of attribution leaks outside segmented regions on median. Minimal background distraction.
+
+#### Spatial overlap (IoU)
+
+- `median_combined_iou: 0.200` — IoU is moderate because attribution is selective (concentrated on a subset of the roof) while SAM masks cover the full building footprint. Low IoU does not mean poor alignment — it means attribution is more focused than the mask.
+- `iqr_combined_iou: 0.186–0.200` — tight distribution; overlap behavior is consistent across holdout.
+
+#### Inside-ratio vs. coverage-ratio
+
+- `median_inside_ratio: 0.930` — 93% of binarized attribution pixels fall inside the mask. Attribution rarely spills outside the building region.
+- `median_coverage_ratio: 0.200` — attribution covers only 20% of the mask area. Model focuses on a subset of the roof rather than the entire building footprint. This is consistent with the spatial-concentration findings from § 1.
+
+#### Consistency
+
+- 90.3% of images have ≥50% attribution mass inside the mask — strong, near-universal alignment between model attention and building location.
+- 77.1% have ≥70% mass inside — for most images, the vast majority of attribution is building-localized.
+- 99.0% have ≥10% IoU — almost every image shows nonzero spatial overlap.
+- Only 52.0% have ≥20% IoU — consistent with attribution being more focused than the mask (low coverage ratio drives IoU down).
+- 45.7% meet both high-mass and high-IoU criteria — images where attribution is both well-localized and spatially overlapping.
+
+#### Health
+
+- `success_rate: 1.0` — every holdout image completed without failure.
+- `fallback_box_rate: 0.011` — GroundingDINO returned zero proposals on only 1.1% of images (7/617), triggering full-image fallback box. Near-perfect detection.
+- `mean_gdino_boxes: 3.7` — GroundingDINO typically proposes ~4 building bounding boxes per image, consistent with satellite crops often containing multiple structures.
+
+#### Main interpretation
+
+The segmentation-overlap analysis confirms the hypothesis that model attribution aligns with actual building/roof regions:
+
+- **Mass inside is high** (median 0.933) — model is not distracted by background context; attention is localized to the building subject.
+- **IoU is moderate** (median 0.200) because attribution is selective, not because it misaligns. The model focuses on discriminative roof features rather than the full building footprint.
+- **Coverage ratio is low** (median 0.200) — consistent with the spatial-concentration findings from § 1: the model needs only a fraction of the image to make its prediction.
+- **GroundingDINO detection is near-perfect** (1.1% fallback rate) — the segmentation pipeline is reliable and the results are not inflated by fallback full-image boxes.
+
+### Pipeline config
+
+| Parameter | Value |
+|---|---|
+| Split | holdout |
+| Attribution method | Transformer Explainability |
+| GroundingDINO model | `IDEA-Research/grounding-dino-base` |
+| SAM model | `facebook/sam-vit-huge` |
+| Grounding text prompt | `building . rooftop . roof` |
+| GDINO box threshold | 0.20 |
+| GDINO text threshold | 0.15 |
+| Attribution percentile | 80 |
+
+### Outputs
+
+Per-image CSV, summary JSON, and plots are committed under `xAI_outputs/segmentation/`:
+
+```text
+xAI_outputs/segmentation/
+├── tables/segmentation_overlap_results.csv
+├── summary/segmentation_overlap_summary.json
+└── plots/
+    ├── attribution_mass_inside_hist.png
+    ├── attribution_mass_outside_hist.png
+    ├── combined_iou_hist.png
+    ├── mass_inside_vs_iou_scatter.png
+    ├── metric_boxplots.png
+    ├── consistency_threshold_bars.png
+    └── ecdf_mass_inside_and_iou.png
 ```
-
-Key metrics to report:
-- `attribution_mass_inside` / `attribution_mass_outside` — fraction of attribution falling inside vs. outside segmented roof/building regions
-- `combined_iou` — spatial overlap between binarized attribution and combined SAM mask
-- `inside_ratio` / `coverage_ratio` — attribution-in-mask and mask-covered-by-attribution
-- Consistency rates at threshold bands (mass ≥ 0.50/0.70, IoU ≥ 0.10/0.20/0.30)
-
-Results will include:
-- Per-image CSV with all metrics
-- Summary JSON with aggregate statistics and consistency rates
-- Histograms, scatter plots, and threshold bar charts under `xAI_outputs/segmentation/plots/`
 
 ---
 
